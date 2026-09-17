@@ -1,4 +1,4 @@
-# showrunner
+# ai-shortform-video-generator
 
 Turns Reddit stories into narrated vertical videos (the TikTok "reddit story
 over gameplay footage" format), with an LLM deciding which stories are
