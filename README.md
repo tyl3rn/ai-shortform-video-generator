@@ -6,6 +6,11 @@ actually worth making. One command crawls a subreddit, scores every candidate
 post, rewrites weak endings, and renders finished 1080x1920 videos with
 burned-in captions and ready-to-paste upload text.
 
+In daily use it runs unattended on a Raspberry Pi: every morning at 6 AM it
+makes two videos and drops them, with their TikTok captions, into a Google
+Drive folder, so posting is a matter of saving the video on a phone and
+pasting the caption.
+
 The video rendering is the boring part. The point of the project is the
 curation layer: most posts on any given day are mediocre, and a bot that
 posts mediocre content is worthless. So everything runs through a judge that
@@ -37,10 +42,20 @@ scores candidates and refuses to produce anything below a quality bar.
                                               |
                                               v
                              demo/<sub>-<stamp>-N.mp4  +  .upload.json
+                                              |
+                     daily.py (Pi, 6 AM)      v
+                    +----------------------------------------------------------+
+                    |  retries other subreddits until 2 videos exist, uploads  |
+                    |  video + .caption.txt with rclone, cleans up old files   |
+                    +----------------------------------------------------------+
+                                              |
+                                              v
+                    Google Drive: showrunner/<date>/  ->  phone  ->  TikTok
 ```
 
 Every stage is its own module with a CLI, so each step can be run and
-debugged alone. `main.py` chains them.
+debugged alone. `main.py` chains them; `daily.py` wraps `main.py` for the
+unattended daily run.
 
 ## Finding stories
 
@@ -101,15 +116,14 @@ favored over ones that only look good on paper.
 
 ## Model choices
 
-Scoring and caption writing run on Sonnet, which is cheap enough to score a
-whole listing for a fraction of a cent and good enough for judgment work.
+Scoring and caption writing run on Sonnet 5 (`claude-sonnet-5`), which is
+good enough for judgment work at half the per-token price of Opus 5.5.
 The script doctor runs on Opus 5.5 at high effort with thinking enabled,
 because rewriting an ending so the twist actually lands is the one real
 writing task in the pipeline and it only runs once per posted story. If the
 model declines a story (they involve stalkers and assaults), server-side
 fallback reruns it on another model, and if the whole chain declines, the
-original text is narrated as-is. Thinking tokens dominate the bill: a day's
-2-video batch runs roughly $0.30-0.60.
+original text is narrated as-is.
 
 The script doctor is really a narration-script pass with four jobs. First,
 the ending: if the judge flagged it flat, the doctor replaces the final
@@ -125,6 +139,17 @@ for the substitutes the genre uses (unalive and friends). The intro card
 keeps the original title for authenticity; the narrator reads the polished
 one. Whether an ending was rewritten is recorded in the video's
 `.meta.json`, so there's always a record of which stories are embellished.
+
+### Running costs
+
+| Item | Per month |
+|---|---|
+| Claude API (thinking tokens dominate: ~$0.30-0.60 a day for 2 videos) | ~$10-20 |
+| Raspberry Pi electricity (~3-7 W) | ~$0.40 |
+| Google Drive (free 15 GB), Google Cloud OAuth app, GitHub, Reddit RSS, edge-tts | $0 |
+
+These are estimates; the Anthropic console's Usage page has the real numbers.
+A monthly spend limit (console Settings, Limits) caps the worst case.
 
 ## What the videos look like
 
@@ -178,8 +203,10 @@ would judge, and re-crawls a subreddit once its listing is 2 hours old. A
 run reads the cache first and only crawls live for what's missing or older
 than 6 hours, and `auto` rotates among subreddits that are fully cached. With
 a warm cache, a run goes straight to judging. The web console starts the
-prefetcher automatically; on a Pi or without the console, run
-`python prefetch.py` on its own. A full sweep of the pool takes about 80
+prefetcher automatically and shows its progress in the header ("5/9 subs
+ready"); without the console, run `python prefetch.py` on its own. The 6 AM
+Pi job doesn't use it: nobody is waiting on that run, so it just crawls
+live (about 30 minutes end to end). A full sweep of the pool takes about 80
 minutes on RSS. While a run crawls live, it pauses the prefetcher so the two
 don't share one rate limit.
 
@@ -199,6 +226,7 @@ don't share one rate limit.
 | `web/server.py` | local FastAPI console: generate, watch progress, rate videos |
 | `feedback.py` | ratings store + taste profile for the judge and doctor |
 | `metrics.py` | real platform stats, judge-vs-reality correlation, performance memory |
+| `docs/` | README images, plus the GitHub Pages home page and privacy policy the Google OAuth app points to |
 
 ## Web console
 
@@ -239,6 +267,8 @@ table with the correlations appears above the library.
 | `demo/<name>.meta.json` | full scorecard, subreddit, spoken title, whether the ending was rewritten |
 | `run_output/seen_story_ids.json` | post IDs already used, so no story becomes two videos |
 | `run_output/prefetch_cache.json` | prefetched listings + comments (`prefetch.log` alongside it) |
+| `run_output/daily.log` | everything the daily job did, including the full pipeline output |
+| Google Drive `showrunner/<date>/` | each day's videos, each next to a `<name>.caption.txt` with its TikTok caption |
 | `ratings.json` | your 1-5 ratings and notes, feeds the taste profile |
 | `metrics.json` | real platform stats per video, feeds the analysis and the judge |
 
@@ -247,9 +277,9 @@ table with the correlations appears above the library.
 You need:
 
 - Python 3.11+ and ffmpeg on PATH
-- an Anthropic API key with credit on it (console.anthropic.com, set it as
-  `ANTHROPIC_API_KEY`). Usage is pay-per-token; a full batch run costs a few
-  cents, so even the $5 minimum credit lasts a long time
+- an Anthropic API key with credit on it (console.anthropic.com), as
+  `ANTHROPIC_API_KEY` in `.env` or the environment. Usage is pay-per-token,
+  about $0.30-0.60 per 2-video day (see Running costs)
 - a background gameplay video (any long landscape mp4 works, it gets
   center-cropped to vertical)
 - internet access for narration (edge-tts uses Microsoft's free TTS
@@ -281,45 +311,89 @@ path, `REDDIT_RSS_INTERVAL` to tune RSS pacing.
 At 6 AM it makes 2 videos, retrying with another subreddit (up to 3 crawls)
 if one comes up short, and uploads each video with rclone to
 `showrunner/<date>/` in Google Drive next to a `.caption.txt` holding its
-TikTok caption. Save it from the Google Drive phone app and post by hand. The log is
-`run_output/daily.log`.
+TikTok caption. Save it from the Google Drive phone app and post by hand.
+The log is `run_output/daily.log`.
 
-So the SD card and Google Drive don't fill up (videos run 70-90 MB), each run
-also deletes videos older than 30 days from the Pi and day folders older
-than 14 days from Google Drive. Change `KEEP_LOCAL_DAYS` / `KEEP_CLOUD_DAYS`
-in `daily.py` to adjust.
+When posting, paste the caption and leave the hashtags alone. Tapping a
+pasted hashtag opens TikTok's suggestion list, and picking a suggestion
+inserts the full tag without removing what was already there
+(`#letsnotmeet` becomes `#letsnotmeetmeet`).
+
+So the SD card and Google Drive don't fill up (videos run about 110-120 MB),
+each run also deletes videos older than 30 days from the Pi (~7 GB) and
+files older than 14 days from Google Drive (~3.2 GB). Change
+`KEEP_LOCAL_DAYS` / `KEEP_CLOUD_DAYS` in `daily.py` to adjust.
 
 #### Pi setup
 
-A Pi 4 or 5 running Raspberry Pi OS (64-bit) runs the daily job unattended.
-It's on home internet, so Reddit's RSS feeds work there (they're often
-blocked from cloud servers). On the Pi:
+A Pi 4 or 5 running Raspberry Pi OS Lite (64-bit) runs the daily job
+unattended. It's on home internet, so Reddit's RSS feeds work there (they're
+often blocked from cloud servers). A Pi 4 with 4 GB RAM and a 32 GB card is
+plenty.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/tyl3rn/ai-shortform-video-generator/main/pi/setup.sh | bash
-```
-
-That installs ffmpeg, rclone, and the Python deps into `~/showrunner/.venv`,
-and adds a 6 AM cron job. Then, once:
-
-1. Copy secrets and footage from your PC:
-   `scp .env pi@showrunner.local:showrunner/` and
-   `scp backgrounds/parkour.mp4 pi@showrunner.local:showrunner/backgrounds/`
-2. Connect Google Drive. The Pi has no browser, so tunnel rclone's login
-   page to your PC and open the link it prints there:
-   `ssh -t -L 53682:127.0.0.1:53682 <pi> "rclone config create gdrive drive scope=drive.file"`
-   (`drive.file` limits rclone to the files it creates itself).
-3. Videos upload to `gdrive:showrunner` by default; set
+1. **Flash the card** with Raspberry Pi Imager: set a hostname, a user,
+   Wi-Fi, your time zone (the job runs at 6 AM local), and SSH with
+   public-key auth only.
+2. **Install.** The script uses sudo, so run it with `-t` to get a password
+   prompt:
+   ```bash
+   ssh -t <user>@<pi-host>.local "curl -fsSL https://raw.githubusercontent.com/tyl3rn/ai-shortform-video-generator/main/pi/setup.sh | bash"
+   ```
+   That installs ffmpeg, rclone, and the Python deps into
+   `~/showrunner/.venv`, and adds the 6 AM cron job.
+3. **Copy what isn't in git** from your PC: `.env` (with
+   `ANTHROPIC_API_KEY=...`), `backgrounds/parkour.mp4`, and
+   `run_output/seen_story_ids.json` (plus `ratings.json` / `metrics.json`
+   if you have them) so the Pi doesn't repeat stories and keeps your taste
+   profile.
+4. **Connect Google Drive with your own OAuth client.** rclone's built-in
+   shared client ID is being retired during 2026, so make one:
+   - In Google Cloud Console, create a project, enable the Google Drive
+     API, and set up Google Auth Platform (External).
+   - Branding needs a home page and privacy policy on a domain you own.
+     `docs/index.html` and `docs/privacy.html` serve that via GitHub Pages
+     (Settings, Pages, branch `main`, folder `/docs`). Add the Pages domain
+     under Authorized domains and verify it in Google Search Console (the
+     verification file lives in `docs/`).
+   - Under Audience, publish the app. In "Testing" status Google expires
+     the login every 7 days. `drive.file` isn't a sensitive scope, so no
+     Google review is needed.
+   - Under Clients, create a **Desktop app** client.
+   - Run rclone's login on the Pi with the login page tunneled to your PC,
+     open the `127.0.0.1:53682/auth` link it prints in your PC's browser,
+     and click past the "unverified app" warning:
+     ```bash
+     ssh -t -L 53682:127.0.0.1:53682 <user>@<pi-host>.local \
+       "rclone config create gdrive drive scope=drive.file client_id=<id> client_secret=<secret>"
+     ```
+     `drive.file` limits the Pi to the files it uploads itself; it can't see
+     anything else in the Drive.
+5. Videos upload to `gdrive:showrunner` by default; set
    `SHOWRUNNER_RCLONE_DEST` in `.env` to use another rclone remote.
 
 Test with `cd ~/showrunner && .venv/bin/python daily.py`, then check
-`run_output/daily.log`. A Pi 4 takes roughly 5-15 minutes to render each
-video.
+`run_output/daily.log`. The first real run on a Pi 4 took about 30 minutes
+for two videos.
+
+#### Living with it
+
+- The Pi needs only power and Wi-Fi. If it's off or offline at 6 AM, that
+  day is skipped; there's no catch-up run.
+- To unplug it, shut it down first (`ssh -t <pi> "sudo shutdown -h now"`)
+  so the SD card isn't mid-write. It resumes the schedule on boot.
+- It thermal-throttles while rendering, which only makes renders slower. A
+  heatsink or fan case helps if it lives in a drawer.
+- It only knows the Wi-Fi networks set up on it, so add a new network
+  before moving it.
+- Updating code: push to GitHub, then `git pull` in `~/showrunner` on the
+  Pi (or re-run the setup script).
 
 ## Stack
 
-Python, Anthropic API (structured outputs, thinking, two models routed by
-task), edge-tts, ffmpeg/libass, Pydantic, FastAPI, Reddit API + RSS.
+Python, Anthropic API (structured outputs, adaptive thinking, two models
+routed by task, server-side refusal fallback), edge-tts, ffmpeg/libass,
+Pillow, Pydantic, FastAPI, Reddit API + RSS, Raspberry Pi OS + cron, rclone,
+Google Drive.
 
 ## Notes
 
