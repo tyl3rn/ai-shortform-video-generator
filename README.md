@@ -187,6 +187,7 @@ don't share one rate limit.
 | `reddit_fetch.py` | listings + comments, OAuth or paced RSS fallback |
 | `prefetch.py` | background crawler that keeps a cache of listings + comments warm |
 | `daily.py` | scheduled job: 2 videos a day, uploaded to OneDrive for phone posting |
+| `pi/setup.sh` | one-command Raspberry Pi install + 6 AM cron job |
 | `curate.py` | judging, threshold gate, script doctor, upload copy |
 | `narrate.py` | TTS + word-timed .ass captions, one word at a time |
 | `post_card.py` | fake Reddit post card PNG (invented user, awards, verified badge) |
@@ -279,6 +280,32 @@ if one comes up short, and uploads each video with rclone to
 `OneDrive/showrunner/<date>/` next to a `.caption.txt` holding its TikTok
 caption. Save it from the OneDrive phone app and post by hand. The log is
 `run_output/daily.log`.
+
+#### Pi setup
+
+A Pi 4 or 5 running Raspberry Pi OS (64-bit) runs the daily job unattended.
+It's on home internet, so Reddit's RSS feeds work there (they're often
+blocked from cloud servers). On the Pi:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tyl3rn/ai-shortform-video-generator/main/pi/setup.sh | bash
+```
+
+That installs ffmpeg, rclone, and the Python deps into `~/showrunner/.venv`,
+and adds a 6 AM cron job. Then, once:
+
+1. Copy secrets and footage from your PC:
+   `scp .env pi@showrunner.local:showrunner/` and
+   `scp backgrounds/parkour.mp4 pi@showrunner.local:showrunner/backgrounds/`
+2. Connect OneDrive. The Pi has no browser, so authorize on your PC with
+   `rclone authorize "onedrive"`, then run `rclone config` on the Pi, make a
+   remote named `onedrive`, and paste the token when it asks.
+3. Videos upload to `onedrive:showrunner` by default; set
+   `SHOWRUNNER_RCLONE_DEST` in `.env` to change that.
+
+Test with `cd ~/showrunner && .venv/bin/python daily.py`, then check
+`run_output/daily.log`. A Pi 4 takes roughly 5-15 minutes to render each
+video.
 
 ## Stack
 
