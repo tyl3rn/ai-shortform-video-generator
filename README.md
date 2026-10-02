@@ -186,6 +186,7 @@ don't share one rate limit.
 |---|---|
 | `reddit_fetch.py` | listings + comments, OAuth or paced RSS fallback |
 | `prefetch.py` | background crawler that keeps a cache of listings + comments warm |
+| `daily.py` | scheduled job: 2 videos a day, uploaded to OneDrive for phone posting |
 | `curate.py` | judging, threshold gate, script doctor, upload copy |
 | `narrate.py` | TTS + word-timed .ass captions, one word at a time |
 | `post_card.py` | fake Reddit post card PNG (invented user, awards, verified badge) |
@@ -269,6 +270,15 @@ clears the bar the run exits clean.
 
 Optional: `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` for the fast OAuth
 path, `REDDIT_RSS_INTERVAL` to tune RSS pacing.
+
+### Daily run (Raspberry Pi)
+
+`daily.py` is the unattended daily job, meant for an always-on Raspberry Pi.
+At 6 AM it makes 2 videos, retrying with another subreddit (up to 3 crawls)
+if one comes up short, and uploads each video with rclone to
+`OneDrive/showrunner/<date>/` next to a `.caption.txt` holding its TikTok
+caption. Save it from the OneDrive phone app and post by hand. The log is
+`run_output/daily.log`.
 
 ## Stack
 

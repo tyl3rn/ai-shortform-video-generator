@@ -29,8 +29,10 @@ from pathlib import Path
 
 # Windows consoles default to cp1252, which cannot encode emoji in story
 # titles/captions -- a bare print() would crash the whole run.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+# (Streams are None under pythonw, e.g. when daily.py imports the pool.)
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 import anthropic
 from dotenv import load_dotenv
