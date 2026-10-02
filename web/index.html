@@ -73,7 +73,7 @@
 
 <header>
   <h1>showrunner</h1>
-  <span>pipeline console</span>
+  <span id="prefetch" title="background reddit crawler: runs on ready subreddits skip the crawl">prefetch: starting</span>
 </header>
 
 <h2>Generate</h2>
@@ -366,9 +366,20 @@ async function loadAnalysis() {
   }
 }
 
+async function pollPrefetch() {
+  try {
+    const p = await api("/api/prefetch");
+    $("prefetch").textContent = p.running
+      ? `prefetch: ${p.ready.length}/${p.total} subs ready` + (p.activity ? ` · ${p.activity}` : "")
+      : "prefetch: not running";
+  } catch (err) { $("prefetch").textContent = "prefetch: unavailable"; }
+}
+
 loadVideos();
 loadAnalysis();
 startPolling();
+pollPrefetch();
+setInterval(pollPrefetch, 15000);
 </script>
 </body>
 </html>

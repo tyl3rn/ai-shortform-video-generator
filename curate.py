@@ -36,12 +36,14 @@ import anthropic
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+import prefetch
 from reddit_fetch import clean_text, fetch_comments, fetch_listing, using_oauth
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # In RSS mode every comment fetch costs ~1 minute of rate-limit pacing, so we
 # only deep-judge the top slice of the (already popularity-ranked) listing.
+# (prefetch.py crawls ahead in the background to hide that wait.)
 RSS_CANDIDATE_CAP = 8
 
 # Rotation pool for `subreddit = auto`. Repeats = weighting. The vibe:
@@ -156,9 +158,18 @@ class UploadCopy(BaseModel):
     ))
 
 
-def gather_candidates(subreddit, listing, time_filter, limit, min_len, max_len, seen_ids,
-                      allow_empty_body=False):
-    posts = fetch_listing(subreddit, listing, time_filter, limit)
+def shortlist(posts, subreddit, limit, min_len, max_len, seen_ids):
+    """The candidates a run judges (and fetches comments for). Shared with
+    prefetch.py so the cache holds exactly what a run will ask for."""
+    candidates = gather_candidates(posts[:limit], min_len, max_len, seen_ids,
+                                   allow_empty_body=subreddit.lower() in COMMENT_DRIVEN_SUBS)
+    # In RSS mode every comment fetch costs ~1 minute, so cap the slice.
+    if not using_oauth():
+        candidates = candidates[:RSS_CANDIDATE_CAP]
+    return candidates
+
+
+def gather_candidates(posts, min_len, max_len, seen_ids, allow_empty_body=False):
     candidates = []
     for post in posts:
         if post.get("stickied") or post.get("id") in seen_ids:
@@ -183,14 +194,25 @@ def gather_candidates(subreddit, listing, time_filter, limit, min_len, max_len, 
 
 
 def attach_comments(candidates):
-    for i, cand in enumerate(candidates):
+    live = []
+    for cand in candidates:
+        cached = prefetch.cached_comments(cand["id"])
+        if cached is not None:
+            cand["comments"] = cached[:COMMENTS_PER_POST]
+        else:
+            live.append(cand)
+    if len(live) < len(candidates):
+        print(f"  {len(candidates) - len(live)}/{len(candidates)} served from the prefetch cache")
+    if live and not using_oauth():
+        print(f"  fetching {len(live)} live, ~1 min each (rate limited)")
+    for i, cand in enumerate(live):
         try:
             cand["comments"] = fetch_comments(cand["permalink"], limit=COMMENTS_PER_POST)
         except Exception as e:
-            print(f"  (comments failed for candidate {i}: {e})", file=sys.stderr)
+            print(f"  (comments failed for '{cand['title'][:50]}': {e})", file=sys.stderr)
             cand["comments"] = []
         # Be polite to reddit's public endpoints -- one request per second.
-        if i < len(candidates) - 1:
+        if i < len(live) - 1:
             time.sleep(1.0)
 
 
@@ -399,7 +421,7 @@ def main():
     ap.add_argument("--out", default="story.txt")
     args = ap.parse_args()
 
-    # Fail fast: the Claude call happens AFTER ~9 minutes of rate-limited
+    # Fail fast: on a cold prefetch cache the Claude call happens AFTER ~9 minutes of rate-limited
     # reddit crawling -- don't start that crawl if we can't score at the end.
     import os
     if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -414,27 +436,39 @@ def main():
     seen_path = Path(args.seen_file)
     seen_ids = set(json.loads(seen_path.read_text(encoding="utf-8"))) if seen_path.exists() else set()
 
-    subreddit = random.choice(SUBREDDIT_POOL) if args.subreddit == "auto" else args.subreddit
+    def fully_prefetched(sub):
+        posts = prefetch.cached_listing(sub, args.listing, args.time_filter)
+        if posts is None:
+            return False
+        cands = shortlist(posts, sub, args.limit, args.min_len, args.max_len, seen_ids)
+        return bool(cands) and all(prefetch.cached_comments(c["id"]) is not None for c in cands)
+
+    if args.subreddit == "auto":
+        # Rotate among subreddits the prefetcher already has fully cached, so
+        # the run skips the crawl; fall back to the whole pool on a cold cache.
+        ready = [s for s in SUBREDDIT_POOL if fully_prefetched(s)]
+        subreddit = random.choice(ready or SUBREDDIT_POOL)
+    else:
+        subreddit = args.subreddit
     comment_driven = subreddit.lower() in COMMENT_DRIVEN_SUBS
 
     print(f"Fetching candidates from r/{subreddit} ({args.listing}/{args.time_filter})"
           + (" [question thread: story = top comment]" if comment_driven else "") + "...")
-    candidates = gather_candidates(
-        subreddit, args.listing, args.time_filter,
-        args.limit, args.min_len, args.max_len, seen_ids,
-        allow_empty_body=comment_driven,
-    )
-    if not candidates:
-        print("No usable candidates (all seen, removed, or wrong length).", file=sys.stderr)
-        sys.exit(1)
+    # Keep the background prefetcher off reddit while this run crawls, or the
+    # two processes share one rate limit and 429 each other.
+    with prefetch.paused():
+        posts = prefetch.cached_listing(subreddit, args.listing, args.time_filter)
+        if posts is not None:
+            print("  listing served from the prefetch cache")
+        else:
+            posts = fetch_listing(subreddit, args.listing, args.time_filter, args.limit)
+        candidates = shortlist(posts, subreddit, args.limit, args.min_len, args.max_len, seen_ids)
+        if not candidates:
+            print("No usable candidates (all seen, removed, or wrong length).", file=sys.stderr)
+            sys.exit(1)
 
-    if not using_oauth() and len(candidates) > RSS_CANDIDATE_CAP:
-        candidates = candidates[:RSS_CANDIDATE_CAP]
-        print(f"RSS mode (no reddit credentials): judging top {RSS_CANDIDATE_CAP} "
-              f"candidates, ~1 min per comment fetch -- this run takes a while.")
-
-    print(f"Fetching top comments for {len(candidates)} candidates...")
-    attach_comments(candidates)
+        print(f"Fetching top comments for {len(candidates)} candidates...")
+        attach_comments(candidates)
 
     if comment_driven:
         candidates = promote_comments(candidates, args.min_len, args.max_len)

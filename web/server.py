@@ -17,6 +17,7 @@ import re
 import subprocess
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -29,6 +30,7 @@ sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 import feedback  # noqa: E402
 import metrics  # noqa: E402
+import prefetch  # noqa: E402
 
 DEMO_DIR = ROOT / "demo"
 RUN_OUTPUT = ROOT / "run_output"
@@ -52,7 +54,24 @@ STAGE_MARKERS = [
     ("Fetching candidates", "crawling reddit"),
 ]
 
-app = FastAPI(title="showrunner console")
+PREFETCH_LOG = RUN_OUTPUT / "prefetch.log"
+
+
+@asynccontextmanager
+async def lifespan(app):
+    # The prefetcher lives as long as the console: it crawls reddit in the
+    # background so Generate can skip the rate-limited wait. If one is
+    # already running (its own lock), the new one exits immediately.
+    RUN_OUTPUT.mkdir(exist_ok=True)
+    env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.Popen([sys.executable, str(ROOT / "prefetch.py")],
+                            stdout=open(PREFETCH_LOG, "wb"), stderr=subprocess.STDOUT,
+                            cwd=ROOT, env=env)
+    yield
+    proc.terminate()
+
+
+app = FastAPI(title="showrunner console", lifespan=lifespan)
 _job: dict = {"proc": None, "params": None, "started": None}
 
 
@@ -147,6 +166,11 @@ def job_status():
         "elapsed": round(time.time() - _job["started"]) if _job["started"] and running else None,
         "log": log,
     }
+
+
+@app.get("/api/prefetch")
+def prefetch_status():
+    return prefetch.status()
 
 
 @app.get("/api/videos")

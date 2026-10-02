@@ -167,14 +167,25 @@ by Reddit's own ranking, so position substitutes for score, and the judge
 works from story text and comment text anyway. Both paths return the same
 shape to the rest of the pipeline.
 
-The slow crawl gets amortized: one crawl produces every story that clears
-the bar, up to a cap, not just the best one.
+The slow crawl gets amortized two ways. One crawl produces every story
+that clears the bar, up to a cap, not just the best one. And `prefetch.py`
+crawls ahead in the background: it cycles the subreddit pool at Reddit's
+pace, caching each listing plus comments for exactly the candidates a run
+would judge, and re-crawls a subreddit once its listing is 2 hours old. A
+run reads the cache first and only crawls live for what's missing or older
+than 6 hours, and `auto` rotates among subreddits that are fully cached. With
+a warm cache, a run goes straight to judging. The web console starts the
+prefetcher automatically; on a Pi or without the console, run
+`python prefetch.py` on its own. A full sweep of the pool takes about 80
+minutes on RSS. While a run crawls live, it pauses the prefetcher so the two
+don't share one rate limit.
 
 ## Modules
 
 | Module | Does |
 |---|---|
 | `reddit_fetch.py` | listings + comments, OAuth or paced RSS fallback |
+| `prefetch.py` | background crawler that keeps a cache of listings + comments warm |
 | `curate.py` | judging, threshold gate, script doctor, upload copy |
 | `narrate.py` | TTS + word-timed .ass captions, one word at a time |
 | `post_card.py` | fake Reddit post card PNG (invented user, awards, verified badge) |
@@ -222,6 +233,7 @@ table with the correlations appears above the library.
 | `demo/<name>.upload.json` | TikTok caption, YouTube title/description, AI disclosure flags, source permalink |
 | `demo/<name>.meta.json` | full scorecard, subreddit, spoken title, whether the ending was rewritten |
 | `run_output/seen_story_ids.json` | post IDs already used, so no story becomes two videos |
+| `run_output/prefetch_cache.json` | prefetched listings + comments (`prefetch.log` alongside it) |
 | `ratings.json` | your 1-5 ratings and notes, feeds the taste profile |
 | `metrics.json` | real platform stats per video, feeds the analysis and the judge |
 
