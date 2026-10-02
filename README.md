@@ -103,10 +103,13 @@ favored over ones that only look good on paper.
 
 Scoring and caption writing run on Sonnet, which is cheap enough to score a
 whole listing for a fraction of a cent and good enough for judgment work.
-The script doctor runs on Opus with thinking enabled, because rewriting an
-ending so the twist actually lands is the one real writing task in the
-pipeline and it only runs once per posted story. A day's batch costs a few
-cents total.
+The script doctor runs on Opus 5.5 at high effort with thinking enabled,
+because rewriting an ending so the twist actually lands is the one real
+writing task in the pipeline and it only runs once per posted story. If the
+model declines a story (they involve stalkers and assaults), server-side
+fallback reruns it on another model, and if the whole chain declines, the
+original text is narrated as-is. Thinking tokens dominate the bill: a day's
+2-video batch runs roughly $0.30-0.60.
 
 The script doctor is really a narration-script pass with four jobs. First,
 the ending: if the judge flagged it flat, the doctor replaces the final

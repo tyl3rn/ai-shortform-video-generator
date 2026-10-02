@@ -71,7 +71,7 @@ MODEL = "claude-sonnet-5"
 
 # The ending doctor is the one creative-writing call in the pipeline, and it
 # runs once per posted story -- Opus's stronger prose is worth the pennies.
-DOCTOR_MODEL = "claude-opus-4-8"
+DOCTOR_MODEL = "claude-opus-5-5"
 
 # How many comments per candidate to show the judge. Top 6 is plenty of
 # signal without bloating the prompt.
@@ -326,9 +326,17 @@ def script_doctor(winner: dict, flagged: bool) -> ScriptPolish:
             )
     except Exception:
         pass
-    response = client.messages.parse(
+    response = client.beta.messages.parse(
         model=DOCTOR_MODEL,
         thinking={"type": "adaptive"},
+        # Opus 5.5 defaults to medium effort; twist-crafting is the one
+        # think-heavy creative call in the pipeline, so ask for high.
+        output_config={"effort": "high"},
+        # These stories are about stalkers, break-ins and assaults. If the
+        # model declines one, the API reruns it on a fallback model instead
+        # of losing the video.
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
         # Generous cap: adaptive thinking shares this budget, and twist-
         # crafting is think-heavy. Unused headroom costs nothing.
         max_tokens=12000,
@@ -374,6 +382,11 @@ def script_doctor(winner: dict, flagged: bool) -> ScriptPolish:
         output_format=ScriptPolish,
     )
     result = response.parsed_output
+    if response.stop_reason == "refusal" or result is None:
+        # Whole fallback chain declined: narrate the original text rather
+        # than drop a story that already cleared the judge.
+        print(f"Script doctor declined ({response.stop_reason}); using the original text.")
+        return ScriptPolish(rewrote_ending=False, spoken_title=winner["title"], story=winner["body"])
     result.story = result.story.strip()
     result.spoken_title = result.spoken_title.strip().rstrip(".")
     print("Script doctor: ending rewritten." if result.rewrote_ending
