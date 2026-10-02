@@ -38,7 +38,9 @@ python3 -m venv "$DIR/.venv"
 
 echo "== daily cron job (6:00 local time)"
 CRON_LINE="0 6 * * * cd $DIR && .venv/bin/python daily.py >/dev/null 2>&1"
-( crontab -l 2>/dev/null | grep -v 'showrunner.*daily.py' ; echo "$CRON_LINE" ) | crontab -
+# `crontab -l` and `grep -v` both exit 1 on a fresh Pi (no crontab yet,
+# nothing to keep), which would trip `set -e`.
+{ crontab -l 2>/dev/null | grep -v 'showrunner.*daily.py' || true; echo "$CRON_LINE"; } | crontab -
 
 echo
 echo "Done. Timezone is $(timedatectl show -p Timezone --value) -- the job runs at 6:00 in it."
