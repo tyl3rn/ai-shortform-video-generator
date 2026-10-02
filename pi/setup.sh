@@ -6,8 +6,8 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/tyl3rn/ai-shortform-video-generator/main/pi/setup.sh | bash
 #
-# Afterwards (once): copy .env and backgrounds/parkour.mp4 over, run
-# `rclone config` to connect OneDrive (see README "Running on a Raspberry Pi").
+# Afterwards (once): copy .env and backgrounds/parkour.mp4 over, and
+# connect Google Drive with rclone (see README "Pi setup").
 set -euo pipefail
 
 REPO_URL="https://github.com/tyl3rn/ai-shortform-video-generator.git"
@@ -46,4 +46,4 @@ echo
 echo "Done. Timezone is $(timedatectl show -p Timezone --value) -- the job runs at 6:00 in it."
 [ -f "$DIR/.env" ] || echo "Still needed: $DIR/.env (ANTHROPIC_API_KEY, SHOWRUNNER_RCLONE_DEST)"
 [ -f "$DIR/backgrounds/parkour.mp4" ] || echo "Still needed: $DIR/backgrounds/parkour.mp4"
-rclone listremotes 2>/dev/null | grep -q . || echo "Still needed: rclone config (connect OneDrive)"
+rclone listremotes 2>/dev/null | grep -q . || echo "Still needed: rclone config (connect Google Drive)"

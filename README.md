@@ -186,7 +186,7 @@ don't share one rate limit.
 |---|---|
 | `reddit_fetch.py` | listings + comments, OAuth or paced RSS fallback |
 | `prefetch.py` | background crawler that keeps a cache of listings + comments warm |
-| `daily.py` | scheduled job: 2 videos a day, uploaded to OneDrive for phone posting |
+| `daily.py` | scheduled job: 2 videos a day, uploaded to Google Drive for phone posting |
 | `pi/setup.sh` | one-command Raspberry Pi install + 6 AM cron job |
 | `curate.py` | judging, threshold gate, script doctor, upload copy |
 | `narrate.py` | TTS + word-timed .ass captions, one word at a time |
@@ -277,13 +277,13 @@ path, `REDDIT_RSS_INTERVAL` to tune RSS pacing.
 `daily.py` is the unattended daily job, meant for an always-on Raspberry Pi.
 At 6 AM it makes 2 videos, retrying with another subreddit (up to 3 crawls)
 if one comes up short, and uploads each video with rclone to
-`OneDrive/showrunner/<date>/` next to a `.caption.txt` holding its TikTok
-caption. Save it from the OneDrive phone app and post by hand. The log is
+`showrunner/<date>/` in Google Drive next to a `.caption.txt` holding its
+TikTok caption. Save it from the Google Drive phone app and post by hand. The log is
 `run_output/daily.log`.
 
-So the SD card and OneDrive don't fill up (videos run 70-90 MB), each run
+So the SD card and Google Drive don't fill up (videos run 70-90 MB), each run
 also deletes videos older than 30 days from the Pi and day folders older
-than 14 days from OneDrive. Change `KEEP_LOCAL_DAYS` / `KEEP_ONEDRIVE_DAYS`
+than 14 days from Google Drive. Change `KEEP_LOCAL_DAYS` / `KEEP_CLOUD_DAYS`
 in `daily.py` to adjust.
 
 #### Pi setup
@@ -302,11 +302,12 @@ and adds a 6 AM cron job. Then, once:
 1. Copy secrets and footage from your PC:
    `scp .env pi@showrunner.local:showrunner/` and
    `scp backgrounds/parkour.mp4 pi@showrunner.local:showrunner/backgrounds/`
-2. Connect OneDrive. The Pi has no browser, so authorize on your PC with
-   `rclone authorize "onedrive"`, then run `rclone config` on the Pi, make a
-   remote named `onedrive`, and paste the token when it asks.
-3. Videos upload to `onedrive:showrunner` by default; set
-   `SHOWRUNNER_RCLONE_DEST` in `.env` to change that.
+2. Connect Google Drive. The Pi has no browser, so tunnel rclone's login
+   page to your PC and open the link it prints there:
+   `ssh -t -L 53682:127.0.0.1:53682 <pi> "rclone config create gdrive drive scope=drive.file"`
+   (`drive.file` limits rclone to the files it creates itself).
+3. Videos upload to `gdrive:showrunner` by default; set
+   `SHOWRUNNER_RCLONE_DEST` in `.env` to use another rclone remote.
 
 Test with `cd ~/showrunner && .venv/bin/python daily.py`, then check
 `run_output/daily.log`. A Pi 4 takes roughly 5-15 minutes to render each

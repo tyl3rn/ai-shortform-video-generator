@@ -2,19 +2,19 @@
 daily.py
 
 The once-a-day job on the Raspberry Pi: make TARGET videos, then upload them
-to a OneDrive folder so they can be grabbed on a phone and posted to TikTok
+to a Google Drive folder so they can be grabbed on a phone and posted to TikTok
 by hand.
 
   - Runs main.py against a subreddit from the pool. If that crawl yields fewer
     than TARGET videos (nothing cleared the score bar), tries a different
     subreddit, up to MAX_ATTEMPTS crawls.
   - Each finished video lands in demo/ as usual, and is uploaded with
-    rclone to OneDrive/showrunner/<date>/ next to a .caption.txt holding the
+    rclone to Google Drive showrunner/<date>/ next to a .caption.txt holding the
     TikTok caption, ready to copy-paste. The rclone destination defaults to
-    "onedrive:showrunner"; override with SHOWRUNNER_RCLONE_DEST in .env.
-  - Cleans up after itself so the SD card and OneDrive don't fill: videos
+    "gdrive:showrunner"; override with SHOWRUNNER_RCLONE_DEST in .env.
+  - Cleans up after itself so the SD card and Google Drive don't fill: videos
     older than KEEP_LOCAL_DAYS are deleted from demo/, and day folders older
-    than KEEP_ONEDRIVE_DAYS from OneDrive.
+    than KEEP_CLOUD_DAYS from Google Drive.
   - Everything is logged to run_output/daily.log.
 
 Scheduled by cron (pi/setup.sh installs it); by hand:
@@ -40,15 +40,15 @@ BACKGROUND = ROOT / "backgrounds" / "parkour.mp4"
 EXPORT_STAGING = RUN_OUTPUT / "export"
 
 load_dotenv(ROOT / ".env")
-RCLONE_DEST = os.environ.get("SHOWRUNNER_RCLONE_DEST", "onedrive:showrunner").rstrip("/")
+RCLONE_DEST = os.environ.get("SHOWRUNNER_RCLONE_DEST", "gdrive:showrunner").rstrip("/")
 
 TARGET = 2
 MAX_ATTEMPTS = 3
 
 # Videos run ~70-90 MB each. 30 days on the Pi is ~5 GB of a 32 GB card;
-# 14 days on OneDrive is ~2.5 GB, inside the free plan's 5 GB.
+# 14 days in Google Drive is ~2.5 GB of the free 15 GB.
 KEEP_LOCAL_DAYS = 30
-KEEP_ONEDRIVE_DAYS = 14
+KEEP_CLOUD_DAYS = 14
 
 
 def log(msg: str):
@@ -92,7 +92,7 @@ def cleanup():
     if removed:
         log(f"cleanup: deleted {removed} video(s) older than {KEEP_LOCAL_DAYS} days from demo/")
 
-    age = f"{KEEP_ONEDRIVE_DAYS}d"
+    age = f"{KEEP_CLOUD_DAYS}d"
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as fh:
             # files first, then the day folders they leave empty
@@ -103,7 +103,7 @@ def cleanup():
                     log(f"cleanup: {' '.join(cmd[:2])} failed (exit {code})")
                     break
     except FileNotFoundError:
-        log("cleanup: rclone not installed, skipped OneDrive cleanup")
+        log("cleanup: rclone not installed, skipped Google Drive cleanup")
 
 
 def main():
@@ -131,7 +131,7 @@ def main():
 
     day = time.strftime("%Y-%m-%d")
     # Stage video + caption pairs locally, upload in one rclone call, and
-    # drop the staging copy once it's safely in OneDrive.
+    # drop the staging copy once it's safely in Google Drive.
     dest = EXPORT_STAGING / day
     for mp4 in made:
         try:
