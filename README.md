@@ -281,6 +281,11 @@ if one comes up short, and uploads each video with rclone to
 caption. Save it from the OneDrive phone app and post by hand. The log is
 `run_output/daily.log`.
 
+So the SD card and OneDrive don't fill up (videos run 70-90 MB), each run
+also deletes videos older than 30 days from the Pi and day folders older
+than 14 days from OneDrive. Change `KEEP_LOCAL_DAYS` / `KEEP_ONEDRIVE_DAYS`
+in `daily.py` to adjust.
+
 #### Pi setup
 
 A Pi 4 or 5 running Raspberry Pi OS (64-bit) runs the daily job unattended.

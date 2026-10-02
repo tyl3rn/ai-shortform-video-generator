@@ -12,6 +12,9 @@ by hand.
     rclone to OneDrive/showrunner/<date>/ next to a .caption.txt holding the
     TikTok caption, ready to copy-paste. The rclone destination defaults to
     "onedrive:showrunner"; override with SHOWRUNNER_RCLONE_DEST in .env.
+  - Cleans up after itself so the SD card and OneDrive don't fill: videos
+    older than KEEP_LOCAL_DAYS are deleted from demo/, and day folders older
+    than KEEP_ONEDRIVE_DAYS from OneDrive.
   - Everything is logged to run_output/daily.log.
 
 Scheduled by cron (pi/setup.sh installs it); by hand:
@@ -42,6 +45,11 @@ RCLONE_DEST = os.environ.get("SHOWRUNNER_RCLONE_DEST", "onedrive:showrunner").rs
 TARGET = 2
 MAX_ATTEMPTS = 3
 
+# Videos run ~70-90 MB each. 30 days on the Pi is ~5 GB of a 32 GB card;
+# 14 days on OneDrive is ~2.5 GB, inside the free plan's 5 GB.
+KEEP_LOCAL_DAYS = 30
+KEEP_ONEDRIVE_DAYS = 14
+
 
 def log(msg: str):
     RUN_OUTPUT.mkdir(exist_ok=True)
@@ -70,6 +78,32 @@ def stage_export(mp4: Path, dest: Path):
     if upload.exists():
         copy = json.loads(upload.read_text(encoding="utf-8"))
         (dest / f"{mp4.stem}.caption.txt").write_text(copy.get("tiktok_caption", ""), encoding="utf-8")
+
+
+def cleanup():
+    cutoff = time.time() - KEEP_LOCAL_DAYS * 86400
+    removed = 0
+    for mp4 in DEMO_DIR.glob("*.mp4"):
+        if mp4.stat().st_mtime < cutoff:
+            # the video plus its sidecars (captions, scorecard)
+            for f in DEMO_DIR.glob(f"{mp4.stem}.*"):
+                f.unlink(missing_ok=True)
+            removed += 1
+    if removed:
+        log(f"cleanup: deleted {removed} video(s) older than {KEEP_LOCAL_DAYS} days from demo/")
+
+    age = f"{KEEP_ONEDRIVE_DAYS}d"
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as fh:
+            # files first, then the day folders they leave empty
+            for cmd in (["rclone", "delete", RCLONE_DEST, "--min-age", age],
+                        ["rclone", "rmdirs", RCLONE_DEST, "--leave-root"]):
+                code = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT).returncode
+                if code != 0:
+                    log(f"cleanup: {' '.join(cmd[:2])} failed (exit {code})")
+                    break
+    except FileNotFoundError:
+        log("cleanup: rclone not installed, skipped OneDrive cleanup")
 
 
 def main():
@@ -119,6 +153,7 @@ def main():
             log(f"upload to {remote} failed ({code}); files kept in {dest}")
     log(f"=== done: {len(made)}/{TARGET} video(s)"
         + (f", exported to {dest}" if made else "") + " ===")
+    cleanup()
 
 
 if __name__ == "__main__":
