@@ -19,12 +19,14 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+load_dotenv(ROOT / ".env")
 import feedback  # noqa: E402
 import metrics  # noqa: E402
 

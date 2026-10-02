@@ -9,3 +9,4 @@ backgrounds/
 assets/
 ratings.json
 metrics.json
+.env

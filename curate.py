@@ -33,9 +33,12 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import anthropic
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from reddit_fetch import clean_text, fetch_comments, fetch_listing, using_oauth
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # In RSS mode every comment fetch costs ~1 minute of rate-limit pacing, so we
 # only deep-judge the top slice of the (already popularity-ranked) listing.
